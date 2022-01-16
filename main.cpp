@@ -7,7 +7,7 @@
   /o\ ÑAM → está comiendo
   ¡o_     → suelta palillos derecho
   _o      → suelta palillos izquierdo
-  |_|     → sale de comer
+  Se levanta de la mesa     → sale de comer
 */
 
 // Només fem servir el nucli app_cpu per simplicitat
@@ -27,8 +27,13 @@ static const BaseType_t app_cpu = 1;
 
 #define NUM_OF_PHILOSOPHERS 5                         // Nombre de filòsofs
 #define MAX_NUMBER_ALLOWED (NUM_OF_PHILOSOPHERS - 1)  // Màxim nombre de filòsofs a l'habitació  (un menys que el total per evitar deadlock)
-#define ESPERA 200                                    // interval d'espera de vTaskDelay
-#define PTP portTICK_PERIOD_MS
+#define ESPERA 200                                    // interval d'espera de vTaskDelay                 
+#define INFINITE 0                                    //Si INFINITE = 0, solo comen una vez   
+
+//These define how many bytes and how many ticks per millisecond respectively should be allocated for each stack of tasks waiting on input from the user.
+
+#define PTP portTICK_PERIOD_MS         
+
 // Settings
 enum { TASK_STACK_SIZE = 2048 };  // Bytes in ESP32, words in vanilla FreeRTOS
 
@@ -44,9 +49,10 @@ static SemaphoreHandle_t palillos[NUM_OF_PHILOSOPHERS];
 void comer(void *param) {
     vTaskDelay(ESPERA / PTP);
     int num;
-    char buffersalida[50];
+    char buffersalida[60];   //will be used to print out all of the messages that are sent and received on the serial port
     // 3. antes de decidirse a comer, todos los filósofos pasan
     // un tiempo aleatorio pensando entre 0 y ESPERA.
+    randomSeed(analogRead(2)); //Se lee el valor analogico del pin 2 para que cada vez que se generan los numeros aleatorios estos tengan diferente semilla
     int randomTime1 = random(0, ESPERA);
     int randomTime2 = random(0, ESPERA);
     int randomTime3 = random(0, ESPERA);
@@ -56,16 +62,16 @@ void comer(void *param) {
     xSemaphoreGive(sem_param);
 
     // El filósofo i quiere entrar a comer
-    sprintf(buffersalida, "Filósofo %i: TOC TOC", num);
+    sprintf(buffersalida, "Filósofo %i: Quiere comer", num);
     Serial.println(buffersalida);
 
     // El filósofo i se ha sentado a comer
-    sprintf(buffersalida, "Filósofo %i: |▄|", num);
+    sprintf(buffersalida, "Filósofo %i: Se sienta", num);
     Serial.println(buffersalida);
 
     // El filósofo i coge el palillos izquierdo
     xSemaphoreTake(palillos[num], portMAX_DELAY);
-    sprintf(buffersalida, "Filósofo %i: ¡o", num);
+    sprintf(buffersalida, "Filósofo %i: Coge palillo DER", num);
     Serial.println(buffersalida);
 
     // 2. Cuando un filósofo ha cogido el palillo de la izquierda,
@@ -75,7 +81,7 @@ void comer(void *param) {
 
     // El filósofo i coge el palillo derecho
     xSemaphoreTake(palillos[(num + 1) % NUM_OF_PHILOSOPHERS], portMAX_DELAY);
-    sprintf(buffersalida, "Filósofo %i: ¡o¡", num);
+    sprintf(buffersalida, "Filósofo %i: Coge palillo DER", num);
     Serial.println(buffersalida);
 
     // 3. Antes de decidirse a comer,
@@ -83,7 +89,7 @@ void comer(void *param) {
     vTaskDelay(randomTime2 / PTP);
 
     // El filósofo i come
-    sprintf(buffersalida, "Filósofo %i: ÑAM", num);
+    sprintf(buffersalida, "Filósofo %i: COME", num);
 
     // 4. Los filósofos pasan un tiempo aleatorio (de entre 0 y ESPERA) comiendo.
     vTaskDelay(randomTime3 / PTP);
@@ -91,17 +97,17 @@ void comer(void *param) {
 
     // El filósofo i deja el palillos derecho
     xSemaphoreGive(palillos[(num + 1) % NUM_OF_PHILOSOPHERS]);
-    sprintf(buffersalida, "Filósofo %i: ¡o_", num);
+    sprintf(buffersalida, "Filósofo %i: Suelta palillo DER", num);
     Serial.println(buffersalida);
 
     // El filósofo i deja el palillos izquierdo
     xSemaphoreGive(palillos[num]);
-    sprintf(buffersalida, "Filósofo %i: _o", num);
+    sprintf(buffersalida, "Filósofo %i: Suelta palillo IZQ", num);
     Serial.println(buffersalida);
 
     // Notificar que ha acabado y eliminarse
     if (xSemaphoreGive(sem_done)) {
-        sprintf(buffersalida, "Filósofo %i: |_|", num);
+        sprintf(buffersalida, "Filósofo %i: Se levanta de la mesa", num);
         Serial.println(buffersalida);
     }
     vTaskDelete(NULL);
@@ -117,11 +123,11 @@ void setup() {
     // Esperar un momento para no perder ningún dato
     vTaskDelay(1000 / PTP);
     Serial.println("------ Cena de filósofos ------");
-    Serial.println("@ filósofo 0");
-    Serial.println("@ filósofo 1");
-    Serial.println("@ filósofo 2");
-    Serial.println("@ filósofo 3");
-    Serial.println("@ filósofo 4");
+    
+    for (int i = 0; i < NUM_OF_PHILOSOPHERS; i++){
+        Serial.print("Llega filósofo: ");
+        Serial.println(i);
+    }
 
     // Crear los objetos del kernel antes de iniciar las tareas
     sem_param = xSemaphoreCreateBinary();
@@ -130,7 +136,9 @@ void setup() {
         palillos[i] = xSemaphoreCreateMutex();
     }
 
+    #if INFINITE
     while (MAX_NUMBER_ALLOWED) {
+    #endif
         // Los filósofos empiezan a comer
         for (int i = 0; i < NUM_OF_PHILOSOPHERS; i++) {
             sprintf(tarea, "Philosopher %i", i);
@@ -148,7 +156,9 @@ void setup() {
         for (int i = 0; i < NUM_OF_PHILOSOPHERS; i++) {
             xSemaphoreTake(sem_done, portMAX_DELAY);
         }
+    #if INFINITE
     }
+    #endif
     // Print para saber que no se ha producido deadlock en todo el programa
     Serial.println("\nNO ha habido deadlock, el programa ha finalizado!");
 }
